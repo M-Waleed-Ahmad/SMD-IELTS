@@ -8,6 +8,7 @@ import '../../widgets/timer_badge.dart';
 import '../../models/test_result.dart';
 import '../../core/api_client.dart';
 import '../../widgets/listening_audio_player.dart';
+import '../../models/practice_review_models.dart';
 
 class QuestionPlayerScreen extends StatefulWidget {
   final String practiceSetId;
@@ -26,6 +27,7 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
   String? _sessionId;
   bool _loading = true;
   final Map<String, List<String>> _optionIds = {};
+  final Map<String, AnswerSnapshot> _answerSnapshots = {};
 
   @override
   void initState() {
@@ -84,29 +86,31 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
   void _finish() {
     () async {
       final res = await _api.completePracticeSession(_sessionId!, timeTakenSeconds: estMin * 60);
-      // Convert to TestResult for app recent list
       final app = AppStateScope.of(context);
-      final stats = res['stats'] as Map<String, dynamic>;
+      final stats = (res['stats'] ?? const {}) as Map<String, dynamic>;
       final practice = res['practice_set'] as Map<String, dynamic>;
-      app.addResult(TestResult(
+      final testResult = TestResult(
         id: _sessionId!,
         skillId: practice['skill_slug'],
         practiceSetId: practice['id'],
-        totalQuestions: stats['total_questions'] ?? 0,
+        totalQuestions: stats['total_questions'] ?? qs.length,
         correctQuestions: stats['correct_questions'] ?? 0,
-        timeTakenSeconds: stats['time_taken_seconds'] ?? 0,
+        timeTakenSeconds: stats['time_taken_seconds'] ?? (estMin * 60),
         date: DateTime.now(),
-      ));
+      );
+      app.addResult(testResult);
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/practiceSummary', arguments: TestResult(
-        id: _sessionId!,
-        skillId: practice['skill_slug'],
-        practiceSetId: practice['id'],
-        totalQuestions: stats['total_questions'] ?? 0,
-        correctQuestions: stats['correct_questions'] ?? 0,
-        timeTakenSeconds: stats['time_taken_seconds'] ?? 0,
-        date: DateTime.now(),
-      ));
+      Navigator.pushReplacementNamed(
+        context,
+        '/practiceSummary',
+        arguments: PracticeSummaryArgs(
+          result: testResult,
+          practiceSetId: practice['id'],
+          answers: _answerSnapshots,
+          completionData: res,
+          questions: qs,
+        ),
+      );
     }();
   }
 
@@ -172,9 +176,31 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
                             final selIdx = answers[q.id] as int?;
                             final ids = _optionIds[q.id] ?? const [];
                             final optId = (selIdx != null && selIdx < ids.length) ? ids[selIdx] : null;
-                            await _api.submitPracticeAnswer(_sessionId!, questionId: q.id, optionId: optId);
+                            final optText = (selIdx != null && (q.options?.length ?? 0) > selIdx)
+                                ? q.options![selIdx]
+                                : null;
+                            final resp = await _api.submitPracticeAnswer(
+                              _sessionId!,
+                              questionId: q.id,
+                              optionId: optId,
+                            );
+                            _answerSnapshots[q.id] = AnswerSnapshot(
+                              questionId: q.id,
+                              optionId: optId,
+                              optionText: optText,
+                              isCorrect: resp['is_correct'] as bool?,
+                            );
                           } else {
-                            await _api.submitPracticeAnswer(_sessionId!, questionId: q.id, answerText: controller.text);
+                            final resp = await _api.submitPracticeAnswer(
+                              _sessionId!,
+                              questionId: q.id,
+                              answerText: controller.text,
+                            );
+                            _answerSnapshots[q.id] = AnswerSnapshot(
+                              questionId: q.id,
+                              answerText: controller.text,
+                              isCorrect: resp['is_correct'] as bool?,
+                            );
                           }
                         }
                         if (index == qs.length - 1) {

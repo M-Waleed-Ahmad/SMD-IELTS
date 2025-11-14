@@ -8,6 +8,7 @@ import '../../widgets/primary_button.dart';
 import '../../widgets/practice_set_card.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/skill_card.dart';
+import '../../widgets/async_message.dart';
 import '../exam/exam_intro_screen.dart';
 import '../skill/skill_overview_screen.dart';
 
@@ -63,18 +64,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   future: _skillsFut,
                   builder: (context, snap) {
                     if (snap.hasError) {
-                      return Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          children: [
-                            const Text('Failed to load skills'),
-                            const SizedBox(height: 8),
-                            ElevatedButton(
-                              onPressed: () => setState(() => _skillsFut = _api.getSkills()),
-                              child: const Text('Retry'),
-                            ),
-                          ],
-                        ),
+                      return AsyncMessage(
+                        title: 'Failed to load skills',
+                        icon: Icons.error_outline,
+                        onRetry: () => setState(() => _skillsFut = _api.getSkills()),
                       );
                     }
                     if (!snap.hasData) return const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator());
@@ -114,22 +107,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     future: _quickFut,
                     builder: (context, snap) {
                       if (snap.hasError) {
-                        return Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Text('Failed to load quick practice'),
-                              const SizedBox(height: 8),
-                              ElevatedButton(
-                                onPressed: () => setState(() => _quickFut = _loadQuick()),
-                                child: const Text('Retry'),
-                              ),
-                            ],
-                          ),
+                        return AsyncMessage(
+                          title: 'Failed to load quick practice',
+                          icon: Icons.error_outline,
+                          onRetry: () => setState(() => _quickFut = _loadQuick()),
                         );
                       }
                       if (!snap.hasData) return const Center(child: CircularProgressIndicator());
                       final items = snap.data!;
+                      if (items.isEmpty) {
+                        return const AsyncMessage(title: 'No quick practice sets yet', icon: Icons.hourglass_empty);
+                      }
                       return ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: items.length,

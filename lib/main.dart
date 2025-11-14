@@ -12,7 +12,6 @@ import 'screens/skill/practice_summary_screen.dart';
 import 'screens/auth/onboarding_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
-import 'models/test_result.dart';
 import 'screens/splash/splash_screen.dart';
 
 Future<void> main() async {
@@ -61,8 +60,10 @@ class IeltsApp extends StatelessWidget {
             return MaterialPageRoute(builder: (_) => QuestionPlayerScreen(practiceSetId: id));
           }
           if (settings.name == '/practiceSummary') {
-            final result = settings.arguments as TestResult;
-            return MaterialPageRoute(builder: (_) => PracticeSummaryScreen(result: result));
+            return MaterialPageRoute(
+              builder: (_) => const PracticeSummaryScreen(),
+              settings: settings,
+            );
           }
           return null;
         },

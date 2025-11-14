@@ -82,7 +82,7 @@ class ApiClient {
   Future<String> createExamSession() async {
     final r = await http.post(_u('/exam-sessions'), headers: _headers(auth: true));
     return (_json(r) as Map<String, dynamic>)['exam_session_id'] as String;
-    }
+  }
 
   Future<String> startExamSection({required String examSessionId, required String skillSlug, required int totalQuestions}) async {
     final r = await http.post(_u('/exam-sections'), headers: _headers(auth: true), body: jsonEncode({'exam_session_id': examSessionId, 'skill_slug': skillSlug, 'total_questions': totalQuestions}));
@@ -158,4 +158,3 @@ class ApiException implements Exception {
   @override
   String toString() => 'ApiException($statusCode): $body';
 }
-

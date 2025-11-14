@@ -3,6 +3,7 @@ import '../../core/app_state.dart';
 import '../../models/practice_set.dart';
 import '../../core/api_client.dart';
 import '../../widgets/practice_set_card.dart';
+import '../../widgets/async_message.dart';
 
 class PracticeTabScreen extends StatefulWidget {
   const PracticeTabScreen({super.key});
@@ -52,18 +53,17 @@ class _PracticeTabScreenState extends State<PracticeTabScreen> {
               );
             }
             if (snap.hasError) {
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text('Failed to load skills: ${snap.error}'),
+              return AsyncMessage(
+                title: 'Failed to load skills',
+                subtitle: snap.error.toString(),
+                icon: Icons.error_outline,
+                onRetry: () => setState(() => _skillsFut = _api.getSkills()),
               );
             }
 
             final skills = snap.data ?? [];
             if (skills.isEmpty) {
-              return const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('No skills found'),
-              );
+              return const AsyncMessage(title: 'No skills available yet', icon: Icons.hourglass_empty);
             }
 
             // Initialize first skill only once
@@ -98,27 +98,19 @@ class _PracticeTabScreenState extends State<PracticeTabScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snap.hasError) {
-                return Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Could not load practice sets'),
-                      const SizedBox(height: 8),
-                      ElevatedButton(
-                        onPressed: () {
-                          if (selectedSkillSlug != null) {
-                            _loadSets(selectedSkillSlug!, force: true);
-                          }
-                        },
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
+                return AsyncMessage(
+                  title: 'Could not load practice sets',
+                  icon: Icons.error_outline,
+                  onRetry: () {
+                    if (selectedSkillSlug != null) {
+                      _loadSets(selectedSkillSlug!, force: true);
+                    }
+                  },
                 );
               }
 
               if (sets == null || sets.isEmpty) {
-                return const Center(child: Text('No practice sets available.'));
+                return const AsyncMessage(title: 'No practice sets available', icon: Icons.hourglass_empty);
               }
 
               return RefreshIndicator(

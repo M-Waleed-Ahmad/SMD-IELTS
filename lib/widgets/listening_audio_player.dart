@@ -29,7 +29,13 @@ class _ListeningAudioPlayerState extends State<ListeningAudioPlayer> {
     }
     try {
       await _player.setUrl(url);
-    } catch (_) {} finally {
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Audio unavailable: $e')),
+        );
+      }
+    } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -84,4 +90,3 @@ class _ListeningAudioPlayerState extends State<ListeningAudioPlayer> {
     );
   }
 }
-

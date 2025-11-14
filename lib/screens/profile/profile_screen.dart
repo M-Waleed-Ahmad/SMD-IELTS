@@ -4,6 +4,8 @@ import '../../mock/mock_data.dart';
 import '../../core/api_client.dart';
 import '../../core/supabase_client.dart';
 import 'faq_screen.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -15,6 +17,8 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _api = ApiClient();
   late Future<Map<String, dynamic>> _profileFut;
+  bool _avatarUploading = false;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -49,7 +53,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 Row(
                   children: [
-                    const CircleAvatar(radius: 28, child: Icon(Icons.person)),
+                    Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: 32,
+                          backgroundImage: prof['avatar_url'] != null ? NetworkImage(prof['avatar_url']) : null,
+                          child: prof['avatar_url'] == null ? const Icon(Icons.person) : null,
+                        ),
+                        Positioned(
+                          bottom: -4,
+                          right: -4,
+                          child: IconButton(
+                            icon: const Icon(Icons.camera_alt, size: 18),
+                            onPressed: _avatarUploading ? null : _changeAvatar,
+                          ),
+                        ),
+                        if (_avatarUploading)
+                          const Positioned.fill(
+                            child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
+                          ),
+                      ],
+                    ),
                     const SizedBox(width: 12),
                     Expanded(child: Text(fullName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700))),
                   ],
@@ -138,6 +162,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
 }
 
 extension on _ProfileScreenState {
+  Future<void> _changeAvatar() async {
+    final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (picked == null) return;
+    final userId = Supa.currentUserId;
+    if (userId == null) return;
+    setState(() => _avatarUploading = true);
+    try {
+      final bytes = await picked.readAsBytes();
+      final ext = picked.name.contains('.') ? picked.name.split('.').last : 'jpg';
+      final path = 'avatars/$userId/${DateTime.now().millisecondsSinceEpoch}.$ext';
+      await Supa.client.storage.from('avatars').uploadBinary(path, bytes, fileOptions: const FileOptions(upsert: true));
+      final url = Supa.client.storage.from('avatars').getPublicUrl(path);
+      await _api.updateMe(avatarPath: url);
+      setState(() => _profileFut = _api.getMe());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Avatar updated')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _avatarUploading = false);
+    }
+  }
+
   Future<void> _showEditDialog(BuildContext context, Map<String, dynamic> prof) async {
     final nameCtrl = TextEditingController(text: prof['full_name'] ?? '');
     final bandCtrl = TextEditingController(text: prof['band_goal']?.toString() ?? '');
