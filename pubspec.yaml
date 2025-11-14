@@ -1,0 +1,33 @@
+name: ielts_prep
+description: "MVP Flutter frontend for IELTS preparation (frontend only, mock data)"
+publish_to: 'none'
+
+environment:
+  sdk: ">=2.18.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  google_fonts: ^6.2.1
+  http: ^1.2.1
+  supabase_flutter: ^2.5.6
+  flutter_dotenv: ^5.1.0
+  just_audio: ^0.9.36
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  flutter_launcher_icons: ^0.13.1
+
+flutter_icons:
+  android: true
+  ios: false
+  image_path: "assets/ielt.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - .env

@@ -1,0 +1,91 @@
+import 'package:flutter/material.dart';
+import '../../core/app_state.dart';
+import '../../core/constants.dart';
+import '../../core/api_client.dart';
+import 'exam_section_screen.dart';
+import 'exam_full_summary_screen.dart';
+
+class ExamIntroScreen extends StatelessWidget {
+  const ExamIntroScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppStateScope.of(context);
+    final api = ApiClient();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Exam Simulator')),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Full IELTS-style simulation', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 6),
+              const Text('Listening 30m • Reading 60m • Writing 60m • Speaking prompts'),
+              const SizedBox(height: 16),
+              if (!app.isPremium) ...[
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Full IELTS exam simulations are Premium only.'),
+                        const SizedBox(height: 8),
+                        const ListTile(leading: Icon(Icons.assignment_turned_in), title: Text('Full exam simulations')),
+                        const ListTile(leading: Icon(Icons.lock_open), title: Text('Extra practice sets')),
+                        const ListTile(leading: Icon(Icons.analytics_outlined), title: Text('More detailed statistics')),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pushNamed(context, '/premium'),
+                          child: const Text('Go Premium (mock)'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const Spacer(),
+              ] else ...[
+                const Spacer(),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Start full exam'),
+                  onPressed: () async => _startFullExamFlow(context, api),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _startFullExamFlow(BuildContext context, ApiClient api) async {
+  final examId = await api.createExamSession();
+  final sections = [
+    {'slug': 'listening', 'dur': kListeningMinutes},
+    {'slug': 'reading', 'dur': kReadingMinutes},
+    {'slug': 'writing', 'dur': kWritingMinutes},
+    {'slug': 'speaking', 'dur': kSpeakingMinutes},
+  ];
+  for (final s in sections) {
+    final ok = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ExamSectionScreen(
+          examSessionId: examId,
+          skillId: s['slug'] as String,
+          questions: const [],
+          sectionDurationMinutes: s['dur'] as int,
+        ),
+      ),
+    );
+    if (ok != true) return; // aborted
+  }
+  final summary = await api.completeExamSession(examId);
+  if (context.mounted) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => ExamFullSummaryScreen(summary: summary)));
+  }
+}
