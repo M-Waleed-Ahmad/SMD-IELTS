@@ -136,6 +136,7 @@ class ApiClient {
     if (fullName != null) body['full_name'] = fullName;
     if (bandGoal != null) body['band_goal'] = bandGoal;
     if (avatarPath != null) body['avatar_url'] = avatarPath;
+    
     final r = await http.patch(_u('/me'), headers: _headers(auth: true), body: jsonEncode(body));
     return Map<String, dynamic>.from(_json(r));
   }

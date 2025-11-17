@@ -1,4 +1,5 @@
 from __future__ import annotations
+from venv import logger
 from flask import Blueprint, jsonify, request
 from datetime import datetime, timezone
 from supabase_client import get_supabase
@@ -52,16 +53,20 @@ def get_me():
         print(f"Using existing profile: {prof}")
 
     return jsonify(prof)
+
 @profile_bp.patch("/me")
 def patch_me():
     user_id = get_current_user_id()
+    print(f"Patching profile for user_id: {user_id}")
     sb = get_supabase()
     body = request.get_json(force=True) or {}
+    print(f"Request body: {body}")
     allowed = {k: v for k, v in body.items() if k in {"full_name", "band_goal", "avatar_url"}}
     allowed["updated_at"] = datetime.now(timezone.utc).isoformat()
     prof = sb.table("profiles").update(allowed).eq("user_id", user_id).execute().data
     if not prof:
         return jsonify({"error": "Profile not found"}), 404
+    print(f"Updated profile: {prof[0]}")
     return jsonify(prof[0])
 
 

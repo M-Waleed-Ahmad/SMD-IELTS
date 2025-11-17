@@ -171,11 +171,13 @@ extension on _ProfileScreenState {
     try {
       final bytes = await picked.readAsBytes();
       final ext = picked.name.contains('.') ? picked.name.split('.').last : 'jpg';
-      final path = 'avatars/$userId/${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final path = '$userId/${DateTime.now().millisecondsSinceEpoch}.$ext';
       await Supa.client.storage.from('avatars').uploadBinary(path, bytes, fileOptions: const FileOptions(upsert: true));
       final url = Supa.client.storage.from('avatars').getPublicUrl(path);
       await _api.updateMe(avatarPath: url);
-      setState(() => _profileFut = _api.getMe());
+      setState(() {
+        _profileFut = _api.getMe();
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Avatar updated')));
       }
@@ -230,7 +232,9 @@ extension on _ProfileScreenState {
               final band = bandCtrl.text.trim().isEmpty ? null : int.parse(bandCtrl.text.trim());
               try {
                 await _api.updateMe(fullName: name.isEmpty ? null : name, bandGoal: band);
-                setState(() => _profileFut = _api.getMe());
+                setState(() {
+                  _profileFut = _api.getMe();
+                });
                 if (mounted) Navigator.pop(c);
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update: $e')));
