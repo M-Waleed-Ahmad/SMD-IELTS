@@ -5,21 +5,19 @@ const double kPageHPad = 16.0;
 const double kSectionSpacing = 20.0;
 const double kCardRadius = 14.0;
 
-// Refined brand palette — calm, professional teal + gold
-const Color kBrandPrimary = Color(0xFF0E7490); // teal 700 base
-const Color kBrandPrimaryDark = Color(0xFF0B5E74); // pressed/hover
-const Color kBrandAccent = Color(0xFFF0B429); // warm gold for highlights
+const Color kBrandPrimary = Color(0xFFEF473A);       
+const Color kBrandPrimaryDark = Color(0xFFD63E32);   
+const Color kBrandAccent = Color(0xFFEF473A);         
 
-// Surfaces and neutrals
-const Color kSurface = Color(0xFFF6F8FB); // app background
-const Color kCard = Colors.white; // card background
-const Color kTextPrimary = Color(0xFF111827); // gray-900
-const Color kTextSecondary = Color(0xFF4B5563); // gray-600
-const Color kSoftDivider = Color(0x1F000000); // subtle divider
+// Surfaces and neutrals – clean white layout
+const Color kSurface = Colors.white;                 
+const Color kCard = Colors.white;                    
+const Color kTextPrimary = Color(0xFF1A1A1A);        
+const Color kTextSecondary = Color(0xFF555555);      
+const Color kSoftDivider = Color(0xFFE5E5E5);        
 
-// Optional hero gradient for onboarding
-const Color kHeroGradStart = Color(0xFF0F9DB5);
-const Color kHeroGradEnd = Color(0xFF0B5E74);
+const Color kHeroGradStart = Color(0xFFFF6A5B);
+const Color kHeroGradEnd = Color(0xFFEF473A);
 
 enum QuestionType { mcq, gapFill, shortText, essay }
 

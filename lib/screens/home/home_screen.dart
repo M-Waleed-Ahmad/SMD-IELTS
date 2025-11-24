@@ -95,7 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           name: s['name'],
                           description: s['description'] ?? '',
                           icon: Icons.school,
-                          color: Colors.teal,
+                          color: kBrandPrimary,
                         );
                         return SkillCard(
                           skill: skillModel,
