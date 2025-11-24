@@ -36,6 +36,20 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
     _init();
   }
 
+void _showLoadingDialog() {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(
+      child: CircularProgressIndicator(),
+    ),
+  );
+}
+
+void _hideLoadingDialog() {
+  if (Navigator.canPop(context)) Navigator.pop(context);
+}
+
   Future<void> _init() async {
     // Fetch set details and questions, create practice session
     final detail = await _api.getPracticeSet(widget.practiceSetId);
@@ -84,12 +98,19 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
     if (index > 0) setState(() => index--);
   }
 
-  void _finish() {
-    () async {
-      final res = await _api.completePracticeSession(_sessionId!, timeTakenSeconds: estMin * 60);
+void _finish() {
+  () async {
+    _showLoadingDialog();
+    try {
+      final res = await _api.completePracticeSession(
+        _sessionId!,
+        timeTakenSeconds: estMin * 60,
+      );
+
       final app = AppStateScope.of(context);
       final stats = (res['stats'] ?? const {}) as Map<String, dynamic>;
       final practice = res['practice_set'] as Map<String, dynamic>;
+
       final testResult = TestResult(
         id: _sessionId!,
         skillId: practice['skill_slug'],
@@ -99,8 +120,12 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
         timeTakenSeconds: stats['time_taken_seconds'] ?? (estMin * 60),
         date: DateTime.now(),
       );
+
       app.addResult(testResult);
+
       if (!mounted) return;
+      _hideLoadingDialog();
+
       Navigator.pushReplacementNamed(
         context,
         '/practiceSummary',
@@ -113,8 +138,16 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
           title: practice['title'],
         ),
       );
-    }();
-  }
+    } catch (e) {
+      _hideLoadingDialog();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to finish: $e')),
+        );
+      }
+    }
+  }();
+}
 
   @override
   Widget build(BuildContext context) {
@@ -170,88 +203,98 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: _submitting
-                          ? null
-                          : () async {
-                              // 1) Validation
-                              if (q.type == QuestionType.mcq) {
-                                final selIdx = answers[q.id] as int?;
-                                if (selIdx == null) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Please select an option before continuing.')),
-                                  );
-                                  return;
-                                }
-                              } else {
-                                if (controller.text.trim().isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Please enter your response.')),
-                                  );
-                                  return;
-                                }
-                                answers[q.id] = controller.text.trim();
-                              }
-
-                              // 2) Submit to backend
-                              if (_sessionId == null) {
+                    onPressed: _submitting
+                        ? null
+                        : () async {
+                            // 1) Validation
+                            if (q.type == QuestionType.mcq) {
+                              final selIdx = answers[q.id] as int?;
+                              if (selIdx == null) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Session not initialized. Please go back and try again.')),
+                                  const SnackBar(content: Text('Please select an option before continuing.')),
                                 );
                                 return;
                               }
-
-                              setState(() => _submitting = true);
-                              try {
-                                if (q.type == QuestionType.mcq) {
-                                  final selIdx = answers[q.id] as int;
-                                  final ids = _optionIds[q.id] ?? const [];
-                                  final optId = (selIdx < ids.length) ? ids[selIdx] : null;
-                                  final optText = (q.options != null && selIdx < q.options!.length)
-                                      ? q.options![selIdx]
-                                      : null;
-
-                                  final resp = await _api.submitPracticeAnswer(
-                                    _sessionId!,
-                                    questionId: q.id,
-                                    optionId: optId,
-                                  );
-
-                                  _answerSnapshots[q.id] = AnswerSnapshot(
-                                    questionId: q.id,
-                                    optionId: optId,
-                                    optionText: optText,
-                                    isCorrect: resp['is_correct'] as bool?,
-                                  );
-                                } else {
-                                  final resp = await _api.submitPracticeAnswer(
-                                    _sessionId!,
-                                    questionId: q.id,
-                                    answerText: controller.text.trim(),
-                                  );
-
-                                  _answerSnapshots[q.id] = AnswerSnapshot(
-                                    questionId: q.id,
-                                    answerText: controller.text.trim(),
-                                    isCorrect: resp['is_correct'] as bool?,
-                                  );
-                                }
-
-                                // 3) Move to next or finish
-                                if (index == qs.length - 1) {
-                                  _finish();
-                                } else {
-                                  _next();
-                                }
-                              } catch (e) {
+                            } else {
+                              if (controller.text.trim().isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Failed to submit answer: $e')),
+                                  const SnackBar(content: Text('Please enter your response.')),
                                 );
-                              } finally {
-                                if (mounted) {
-                                  setState(() => _submitting = false);
-                                }
+                                return;
                               }
-                            },
+                              answers[q.id] = controller.text.trim();
+                            }
+
+                            if (_sessionId == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Session not initialized. Please go back and try again.')),
+                              );
+                              return;
+                            }
+
+                            _showLoadingDialog();
+                            setState(() => _submitting = true);
+
+                            try {
+                              // SUBMIT MCQ
+                              if (q.type == QuestionType.mcq) {
+                                final selIdx = answers[q.id] as int;
+                                final ids = _optionIds[q.id] ?? const [];
+                                final optId = (selIdx < ids.length) ? ids[selIdx] : null;
+                                final optText =
+                                    (q.options != null && selIdx < q.options!.length)
+                                        ? q.options![selIdx]
+                                        : null;
+
+                                final resp = await _api.submitPracticeAnswer(
+                                  _sessionId!,
+                                  questionId: q.id,
+                                  optionId: optId,
+                                );
+
+                                _answerSnapshots[q.id] = AnswerSnapshot(
+                                  questionId: q.id,
+                                  optionId: optId,
+                                  optionText: optText,
+                                  isCorrect: resp['is_correct'] as bool?,
+                                );
+                              }
+
+                              // SUBMIT TEXT/ESSAY
+                              else {
+                                final resp = await _api.submitPracticeAnswer(
+                                  _sessionId!,
+                                  questionId: q.id,
+                                  answerText: controller.text.trim(),
+                                );
+
+                                _answerSnapshots[q.id] = AnswerSnapshot(
+                                  questionId: q.id,
+                                  answerText: controller.text.trim(),
+                                  isCorrect: resp['is_correct'] as bool?,
+                                );
+                              }
+
+                              _hideLoadingDialog();
+
+                              // MOVE NEXT
+                              if (index == qs.length - 1) {
+                                _finish();
+                              } else {
+                                setState(() => index++);
+                              }
+
+                            } catch (e) {
+                              _hideLoadingDialog();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to submit answer: $e')),
+                              );
+                            } finally {
+                              if (mounted) {
+                                setState(() => _submitting = false);
+                              }
+                            }
+                          },
                       child: Text(index == qs.length - 1 ? 'Finish' : 'Next'),
                     ),
                   ),
