@@ -3,20 +3,34 @@ import '../../core/app_state.dart';
 import '../../core/constants.dart';
 import '../../core/supabase_client.dart';
 import '../../core/api_client.dart';
+import '../../core/session_boot.dart';
 
-class OnboardingScreen extends StatelessWidget {
+class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  State<OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+class _OnboardingScreenState extends State<OnboardingScreen> {
+  final _api = ApiClient();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _attemptAutoLogin());
+  }
+
+  Future<void> _attemptAutoLogin() async {
+    if (Supa.currentUser == null) return;
     final app = AppStateScope.of(context);
-    // If already logged in, skip to shell
-    if (app.isLoggedIn || Supa.currentUser != null) {
-      // defer push to end of build
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacementNamed(context, '/shell');
-      });
-    }
+    await hydrateFromSupabaseSession(app, _api);
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, '/shell');
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -75,21 +89,7 @@ class OnboardingScreen extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () async {
-                        // Session restore
-                        final user = Supa.currentUser;
-                        if (user != null) {
-                          final api = ApiClient();
-                          final profile = await api.getMe();
-                          final sub = await api.getCurrentSubscription();
-                          app.login(email: '${profile['full_name'] ?? 'user'}@supabase', name: profile['full_name'], userId: user.id);
-                          app.setPremium((sub?['profile']?['is_premium'] as bool?) ?? false);
-                          if (!context.mounted) return;
-                          Navigator.pushReplacementNamed(context, '/shell');
-                          return;
-                        }
-                        Navigator.pushNamed(context, '/login');
-                      },
+                      onPressed: () => Navigator.pushNamed(context, '/login'),
                       child: const Text('Login'),
                     ),
                   ),

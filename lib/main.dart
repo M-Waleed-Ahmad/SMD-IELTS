@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/app_state.dart';
 import 'core/app_theme.dart';
 import 'core/supabase_client.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'mock/mock_data.dart';
+import 'core/api_client.dart';
+import 'core/session_boot.dart';
 import 'screens/premium/premium_screen.dart';
 import 'screens/shell/app_shell.dart';
 import 'screens/skill/practice_set_screen.dart';
@@ -12,6 +16,7 @@ import 'screens/skill/practice_summary_screen.dart';
 import 'screens/auth/onboarding_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
+import 'screens/auth/forgot_password_screen.dart';
 import 'screens/splash/splash_screen.dart';
 
 Future<void> main() async {
@@ -29,25 +34,59 @@ Future<void> main() async {
   runApp(const IeltsApp());
 }
 
-class IeltsApp extends StatelessWidget {
+class IeltsApp extends StatefulWidget {
   const IeltsApp({super.key});
 
   @override
+  State<IeltsApp> createState() => _IeltsAppState();
+}
+
+class _IeltsAppState extends State<IeltsApp> {
+  late final AppState _state;
+  late final ApiClient _apiClient;
+  StreamSubscription<AuthState>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _state = AppState();
+    _apiClient = ApiClient();
+    _hydrate();
+    _authSub = Supa.client.auth.onAuthStateChange.listen((data) async {
+      if (data.event == AuthChangeEvent.signedIn) {
+        await hydrateFromSupabaseSession(_state, _apiClient);
+      } else if (data.event == AuthChangeEvent.signedOut) {
+        _state.logout();
+      }
+    });
+  }
+
+  Future<void> _hydrate() async {
+    await hydrateFromSupabaseSession(_state, _apiClient);
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final state = AppState(seedResults: recentResults);
     return AppStateScope(
-      notifier: state,
+      notifier: _state,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'IELTS Prep',
         theme: buildAppTheme(),
-        themeMode: ThemeMode.light, // force light while designing
+        themeMode: ThemeMode.light,
         initialRoute: '/splash',
         routes: {
           '/splash': (_) => const SplashScreen(),
           '/onboarding': (_) => const OnboardingScreen(),
           '/login': (_) => const LoginScreen(),
           '/register': (_) => const RegisterScreen(),
+          '/forgotPassword': (_) => const ForgotPasswordScreen(),
           '/shell': (_) => const AppShell(),
           '/premium': (_) => const PremiumScreen(),
         },

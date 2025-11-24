@@ -8,10 +8,21 @@ class AppState extends ChangeNotifier {
   bool isLoggedIn;
   String? displayName;
   String? currentUserId;
+  String? avatarUrl;
+  int? bandGoal;
+  int avatarRevision;
   final List<TestResult> results;
 
-  AppState({this.isPremium = false, this.isLoggedIn = false, this.displayName, this.currentUserId, List<TestResult>? seedResults})
-      : results = List<TestResult>.from(seedResults ?? []);
+  AppState({
+    this.isPremium = false,
+    this.isLoggedIn = false,
+    this.displayName,
+    this.currentUserId,
+    this.avatarUrl,
+    this.bandGoal,
+    this.avatarRevision = 0,
+    List<TestResult>? seedResults,
+  }) : results = List<TestResult>.from(seedResults ?? []);
 
   void togglePremium() {
     isPremium = !isPremium;
@@ -35,6 +46,18 @@ class AppState extends ChangeNotifier {
     isLoggedIn = true;
     displayName = name;
     currentUserId = userId;
+    notifyListeners();
+  }
+
+  void setProfile(Map<String, dynamic> profile) {
+    displayName = profile['full_name'] ?? displayName;
+    avatarUrl = profile['avatar_url'] ?? avatarUrl;
+    bandGoal = profile['band_goal'] as int? ?? bandGoal;
+    final premium = profile['is_premium'];
+    if (premium is bool) {
+      isPremium = premium;
+    }
+    avatarRevision++; // bump so listeners can bust caches
     notifyListeners();
   }
 
