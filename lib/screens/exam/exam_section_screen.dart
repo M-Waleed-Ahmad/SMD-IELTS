@@ -160,6 +160,35 @@ class _ExamSectionScreenState extends State<ExamSectionScreen> {
     }
   }
 
+  // Ask user before leaving the section via back navigation
+  Future<bool> _confirmExit() async {
+    // If already submitted/finished, just allow pop with no dialog
+    if (submitted) return true;
+
+    final shouldLeave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Leave this section?'),
+            content: const Text(
+              'If you leave now, your answers in this section may not be fully submitted and your exam attempt could be incomplete.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Stay'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Leave'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    return shouldLeave;
+  }
+
   @override
   Widget build(BuildContext context) {
     final skill = skills.firstWhere(
@@ -178,164 +207,177 @@ class _ExamSectionScreenState extends State<ExamSectionScreen> {
     final controller =
         TextEditingController(text: (answers[q.id] ?? '').toString());
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Exam • ${skill.name}'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Center(
-              child: TimerBadge(
-                duration: Duration(minutes: widget.sectionDurationMinutes),
-                onFinished: _finish,
+    return WillPopScope(
+      onWillPop: _confirmExit,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('Exam • ${skill.name}'),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: Center(
+                child: TimerBadge(
+                  duration: Duration(minutes: widget.sectionDurationMinutes),
+                  onFinished: _finish,
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Question ${index + 1} of ${_qs.length}',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 10),
-              if (q.passage != null)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14.0),
-                    child: Text(q.passage!),
+          ],
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Question ${index + 1} of ${_qs.length}',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 10),
+                if (q.passage != null)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14.0),
+                      child: Text(q.passage!),
+                    ),
+                  ),
+                if (q.audioUrl != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: ListeningAudioPlayer(audioPath: q.audioUrl!),
+                  ),
+                const SizedBox(height: 10),
+                Text(
+                  q.prompt,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 10),
+
+                // small visual indicator while submitting answers
+                if (_submitting)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8.0),
+                    child: LinearProgressIndicator(),
+                  ),
+
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: _body(q, controller),
                   ),
                 ),
-              if (q.audioUrl != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: ListeningAudioPlayer(audioPath: q.audioUrl!),
-                ),
-              const SizedBox(height: 10),
-              Text(
-                q.prompt,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 10),
+                Row(
+                  children: [
+                    OutlinedButton(
+                      onPressed: index == 0 || _submitting
+                          ? null
+                          : () => setState(() => index--),
+                      child: const Text('Previous'),
+                    ),
+                    const SizedBox(width: 8),
+                    if (!submitted)
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _submitting
+                              ? null
+                              : () async {
+                                  // validation for non-MCQ
+                                  if (q.type != QuestionType.mcq) {
+                                    if (controller.text.trim().isEmpty) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Please enter your response.',
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    answers[q.id] = controller.text;
+                                  }
 
-              // small visual indicator while submitting answers
-              if (_submitting)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 8.0),
-                  child: LinearProgressIndicator(),
-                ),
-
-              Expanded(
-                child: SingleChildScrollView(
-                  child: _body(q, controller),
-                ),
-              ),
-              Row(
-                children: [
-                  OutlinedButton(
-                    onPressed: index == 0 || _submitting
-                        ? null
-                        : () => setState(() => index--),
-                    child: const Text('Previous'),
-                  ),
-                  const SizedBox(width: 8),
-                  if (!submitted)
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: _submitting
-                            ? null
-                            : () async {
-                                // validation for non-MCQ
-                                if (q.type != QuestionType.mcq) {
-                                  if (controller.text.trim().isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                  if (_sectionResultId == null) {
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(
                                       const SnackBar(
                                         content: Text(
-                                          'Please enter your response.',
+                                          'Section not initialized. Please go back and try again.',
                                         ),
                                       ),
                                     );
                                     return;
                                   }
-                                  answers[q.id] = controller.text;
-                                }
 
-                                if (_sectionResultId == null) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Section not initialized. Please go back and try again.',
-                                      ),
-                                    ),
-                                  );
-                                  return;
-                                }
+                                  setState(() => _submitting = true);
+                                  try {
+                                    if (q.type == QuestionType.mcq) {
+                                      final selIdx =
+                                          answers[q.id] as int?;
+                                      final ids =
+                                          _optionIds[q.id] ??
+                                              const <String>[];
+                                      final optId = (selIdx != null &&
+                                              selIdx < ids.length)
+                                          ? ids[selIdx]
+                                          : null;
 
-                                setState(() => _submitting = true);
-                                try {
-                                  if (q.type == QuestionType.mcq) {
-                                    final selIdx = answers[q.id] as int?;
-                                    final ids =
-                                        _optionIds[q.id] ?? const <String>[];
-                                    final optId = (selIdx != null &&
-                                            selIdx < ids.length)
-                                        ? ids[selIdx]
-                                        : null;
+                                      await _api.submitExamAnswer(
+                                        examSessionId:
+                                            widget.examSessionId,
+                                        sectionResultId:
+                                            _sectionResultId!,
+                                        questionId: q.id,
+                                        optionId: optId,
+                                      );
+                                    } else {
+                                      await _api.submitExamAnswer(
+                                        examSessionId:
+                                            widget.examSessionId,
+                                        sectionResultId:
+                                            _sectionResultId!,
+                                        questionId: q.id,
+                                        answerText: controller.text,
+                                      );
+                                    }
 
-                                    await _api.submitExamAnswer(
-                                      examSessionId: widget.examSessionId,
-                                      sectionResultId: _sectionResultId!,
-                                      questionId: q.id,
-                                      optionId: optId,
-                                    );
-                                  } else {
-                                    await _api.submitExamAnswer(
-                                      examSessionId: widget.examSessionId,
-                                      sectionResultId: _sectionResultId!,
-                                      questionId: q.id,
-                                      answerText: controller.text,
-                                    );
-                                  }
-
-                                  if (index == _qs.length - 1) {
-                                    // last question -> finish section (shows its own loader)
-                                    await _finish();
-                                  } else {
+                                    if (index == _qs.length - 1) {
+                                      // last question -> finish section
+                                      await _finish();
+                                    } else {
+                                      if (mounted) {
+                                        setState(() => index++);
+                                      }
+                                    }
+                                  } catch (e) {
                                     if (mounted) {
-                                      setState(() => index++);
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Failed to submit answer: $e',
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  } finally {
+                                    if (mounted) {
+                                      setState(
+                                          () => _submitting = false);
                                     }
                                   }
-                                } catch (e) {
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          'Failed to submit answer: $e',
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                } finally {
-                                  if (mounted) {
-                                    setState(() => _submitting = false);
-                                  }
-                                }
-                              },
-                        child: Text(
-                          index == _qs.length - 1
-                              ? 'Submit section'
-                              : 'Next',
+                                },
+                          child: Text(
+                            index == _qs.length - 1
+                                ? 'Submit section'
+                                : 'Next',
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              )
-            ],
+                  ],
+                )
+              ],
+            ),
           ),
         ),
       ),
