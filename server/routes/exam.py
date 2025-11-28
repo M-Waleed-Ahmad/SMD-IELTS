@@ -116,15 +116,35 @@ def complete_exam(exam_id: str):
     body = request.get_json(silent=True) or {}
     total_time = body.get("total_time_seconds")
     sb = get_supabase()
-    sess = sb.table("exam_sessions").select("id,user_id").eq("id", exam_id).single().execute().data
+
+    # Validate session
+    sess = (
+        sb.table("exam_sessions")
+        .select("id,user_id")
+        .eq("id", exam_id)
+        .single()
+        .execute()
+        .data
+    )
     if not sess or sess["user_id"] != user_id:
         abort(404, description="Exam session not found")
-    updated = sb.table("exam_sessions").update({
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-        "total_time_seconds": total_time,
-    }).eq("id", exam_id).execute().data[0]
 
-    # Build summary
+    # Mark exam completed
+    completed_at = datetime.now(timezone.utc).isoformat()
+    updated = (
+        sb.table("exam_sessions")
+        .update(
+            {
+                "completed_at": completed_at,
+                "total_time_seconds": total_time,
+            }
+        )
+        .eq("id", exam_id)
+        .execute()
+        .data[0]
+    )
+
+    # Build section summaries
     sections = (
         sb.table("exam_section_results")
         .select("id,skill_id,time_taken_seconds,total_questions,correct_questions,score")
@@ -133,34 +153,107 @@ def complete_exam(exam_id: str):
         .data
         or []
     )
+
     out_sections = []
+
     for s in sections:
-        skill = sb.table("skills").select("slug").eq("id", s["skill_id"]).single().execute().data
+        # skill slug
+        skill = (
+            sb.table("skills")
+            .select("slug")
+            .eq("id", s["skill_id"])
+            .single()
+            .execute()
+            .data
+        )
+
+        # raw answers for this section
         answers = (
             sb.table("exam_answers")
             .select("question_id,option_id,answer_text,is_correct")
-            .eq("section_result_id", s["id"]).execute().data
+            .eq("section_result_id", s["id"])
+            .execute()
+            .data
             or []
         )
-        # Attach prompt and user_answer text
+
+        # simple caches to avoid querying the same question over and over
+        question_cache: dict[str, dict] = {}
+        correct_option_cache: dict[str, dict | None] = {}
+
         for a in answers:
-            q = sb.table("questions").select("prompt").eq("id", a["question_id"]).single().execute().data
-            a["prompt"] = q["prompt"] if q else None
+            qid = a["question_id"]
+
+            # question prompt (cached)
+            if qid not in question_cache:
+                q = (
+                    sb.table("questions")
+                    .select("prompt")
+                    .eq("id", qid)
+                    .single()
+                    .execute()
+                    .data
+                )
+                question_cache[qid] = q or {}
+            q = question_cache[qid]
+            a["prompt"] = q.get("prompt")
+
+            # user answer text
             user_answer = a.get("answer_text")
+            user_option_text = None
+
             if a.get("option_id"):
-                opt = sb.table("question_options").select("text").eq("id", a["option_id"]).single().execute().data
+                opt = (
+                    sb.table("question_options")
+                    .select("text,question_id")
+                    .eq("id", a["option_id"])
+                    .single()
+                    .execute()
+                    .data
+                )
                 if opt:
-                    user_answer = opt["text"]
+                    user_option_text = opt["text"]
+                    user_answer = user_option_text
+
             a["user_answer"] = user_answer
+
+            # correct option text (cached per question)
+            if qid not in correct_option_cache:
+                opts = (
+                    sb.table("question_options")
+                    .select("text")
+                    .eq("question_id", qid)
+                    .eq("is_correct", True)
+                    .execute()
+                    .data
+                    or []
+                )
+                correct_opt = opts[0] if opts else None
+                correct_option_cache[qid] = correct_opt
+
+            correct_opt = correct_option_cache[qid]
+            correct_text = correct_opt["text"] if correct_opt else None
+
+            a["correct_option_text"] = correct_text
+            a["correct_answer"] = correct_text  # alias for frontend
+
+            # we don't need to expose option_id to the client
             a.pop("option_id", None)
-        out_sections.append({
-            "section_result_id": s["id"],
-            "skill_slug": skill["slug"],
-            "time_taken_seconds": s.get("time_taken_seconds"),
-            "total_questions": s.get("total_questions"),
-            "correct_questions": s.get("correct_questions"),
-            "score": s.get("score"),
-            "answers": answers,
-        })
-    summary = {"exam_session": updated, "sections": out_sections}
+
+        out_sections.append(
+            {
+                "section_result_id": s["id"],
+                "skill_slug": skill["slug"],
+                "time_taken_seconds": s.get("time_taken_seconds"),
+                "total_questions": s.get("total_questions"),
+                "correct_questions": s.get("correct_questions"),
+                "score": s.get("score"),
+                "answers": answers,
+            }
+        )
+
+    summary = {
+        "exam_session": updated,
+        "sections": out_sections,
+    }
     return jsonify(summary)
