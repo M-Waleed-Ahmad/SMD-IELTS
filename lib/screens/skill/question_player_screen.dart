@@ -8,6 +8,7 @@ import '../../widgets/timer_badge.dart';
 import '../../models/test_result.dart';
 import '../../core/api_client.dart';
 import '../../widgets/listening_audio_player.dart';
+import '../../models/practice_review_models.dart';
 
 class QuestionPlayerScreen extends StatefulWidget {
   final String practiceSetId;
@@ -24,14 +25,30 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
   late final int estMin;
   final _api = ApiClient();
   String? _sessionId;
+  bool _submitting = false;
   bool _loading = true;
   final Map<String, List<String>> _optionIds = {};
+  final Map<String, AnswerSnapshot> _answerSnapshots = {};
 
   @override
   void initState() {
     super.initState();
     _init();
   }
+
+void _showLoadingDialog() {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(
+      child: CircularProgressIndicator(),
+    ),
+  );
+}
+
+void _hideLoadingDialog() {
+  if (Navigator.canPop(context)) Navigator.pop(context);
+}
 
   Future<void> _init() async {
     // Fetch set details and questions, create practice session
@@ -81,34 +98,56 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
     if (index > 0) setState(() => index--);
   }
 
-  void _finish() {
-    () async {
-      final res = await _api.completePracticeSession(_sessionId!, timeTakenSeconds: estMin * 60);
-      // Convert to TestResult for app recent list
+void _finish() {
+  () async {
+    _showLoadingDialog();
+    try {
+      final res = await _api.completePracticeSession(
+        _sessionId!,
+        timeTakenSeconds: estMin * 60,
+      );
+
       final app = AppStateScope.of(context);
-      final stats = res['stats'] as Map<String, dynamic>;
+      final stats = (res['stats'] ?? const {}) as Map<String, dynamic>;
       final practice = res['practice_set'] as Map<String, dynamic>;
-      app.addResult(TestResult(
+
+      final testResult = TestResult(
         id: _sessionId!,
         skillId: practice['skill_slug'],
         practiceSetId: practice['id'],
-        totalQuestions: stats['total_questions'] ?? 0,
+        totalQuestions: stats['total_questions'] ?? qs.length,
         correctQuestions: stats['correct_questions'] ?? 0,
-        timeTakenSeconds: stats['time_taken_seconds'] ?? 0,
+        timeTakenSeconds: stats['time_taken_seconds'] ?? (estMin * 60),
         date: DateTime.now(),
-      ));
+      );
+
+      app.addResult(testResult);
+
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/practiceSummary', arguments: TestResult(
-        id: _sessionId!,
-        skillId: practice['skill_slug'],
-        practiceSetId: practice['id'],
-        totalQuestions: stats['total_questions'] ?? 0,
-        correctQuestions: stats['correct_questions'] ?? 0,
-        timeTakenSeconds: stats['time_taken_seconds'] ?? 0,
-        date: DateTime.now(),
-      ));
-    }();
-  }
+      _hideLoadingDialog();
+
+      Navigator.pushReplacementNamed(
+        context,
+        '/practiceSummary',
+        arguments: PracticeSummaryArgs(
+          result: testResult,
+          practiceSetId: practice['id'],
+          answers: _answerSnapshots,
+          completionData: res,
+          questions: qs,
+          title: practice['title'],
+        ),
+      );
+    } catch (e) {
+      _hideLoadingDialog();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to finish: $e')),
+        );
+      }
+    }
+  }();
+}
 
   @override
   Widget build(BuildContext context) {
@@ -157,32 +196,105 @@ class _QuestionPlayerScreenState extends State<QuestionPlayerScreen> {
               ),
               Row(
                 children: [
-                  OutlinedButton(onPressed: _prev, child: const Text('Previous')),
+                OutlinedButton(
+                  onPressed: index == 0 ? null : _prev,
+                  child: const Text('Previous'),
+                ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () async {
-                        if (q.type == QuestionType.mcq) {
-                          // already stored via onSelected
-                        } else {
-                          answers[q.id] = controller.text;
-                        }
-                        if (_sessionId != null) {
-                          if (q.type == QuestionType.mcq) {
-                            final selIdx = answers[q.id] as int?;
-                            final ids = _optionIds[q.id] ?? const [];
-                            final optId = (selIdx != null && selIdx < ids.length) ? ids[selIdx] : null;
-                            await _api.submitPracticeAnswer(_sessionId!, questionId: q.id, optionId: optId);
-                          } else {
-                            await _api.submitPracticeAnswer(_sessionId!, questionId: q.id, answerText: controller.text);
-                          }
-                        }
-                        if (index == qs.length - 1) {
-                          _finish();
-                        } else {
-                          _next();
-                        }
-                      },
+                    onPressed: _submitting
+                        ? null
+                        : () async {
+                            // 1) Validation
+                            if (q.type == QuestionType.mcq) {
+                              final selIdx = answers[q.id] as int?;
+                              if (selIdx == null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Please select an option before continuing.')),
+                                );
+                                return;
+                              }
+                            } else {
+                              if (controller.text.trim().isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Please enter your response.')),
+                                );
+                                return;
+                              }
+                              answers[q.id] = controller.text.trim();
+                            }
+
+                            if (_sessionId == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Session not initialized. Please go back and try again.')),
+                              );
+                              return;
+                            }
+
+                            _showLoadingDialog();
+                            setState(() => _submitting = true);
+
+                            try {
+                              // SUBMIT MCQ
+                              if (q.type == QuestionType.mcq) {
+                                final selIdx = answers[q.id] as int;
+                                final ids = _optionIds[q.id] ?? const [];
+                                final optId = (selIdx < ids.length) ? ids[selIdx] : null;
+                                final optText =
+                                    (q.options != null && selIdx < q.options!.length)
+                                        ? q.options![selIdx]
+                                        : null;
+
+                                final resp = await _api.submitPracticeAnswer(
+                                  _sessionId!,
+                                  questionId: q.id,
+                                  optionId: optId,
+                                );
+
+                                _answerSnapshots[q.id] = AnswerSnapshot(
+                                  questionId: q.id,
+                                  optionId: optId,
+                                  optionText: optText,
+                                  isCorrect: resp['is_correct'] as bool?,
+                                );
+                              }
+
+                              // SUBMIT TEXT/ESSAY
+                              else {
+                                final resp = await _api.submitPracticeAnswer(
+                                  _sessionId!,
+                                  questionId: q.id,
+                                  answerText: controller.text.trim(),
+                                );
+
+                                _answerSnapshots[q.id] = AnswerSnapshot(
+                                  questionId: q.id,
+                                  answerText: controller.text.trim(),
+                                  isCorrect: resp['is_correct'] as bool?,
+                                );
+                              }
+
+                              _hideLoadingDialog();
+
+                              // MOVE NEXT
+                              if (index == qs.length - 1) {
+                                _finish();
+                              } else {
+                                setState(() => index++);
+                              }
+
+                            } catch (e) {
+                              _hideLoadingDialog();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to submit answer: $e')),
+                              );
+                            } finally {
+                              if (mounted) {
+                                setState(() => _submitting = false);
+                              }
+                            }
+                          },
                       child: Text(index == qs.length - 1 ? 'Finish' : 'Next'),
                     ),
                   ),
