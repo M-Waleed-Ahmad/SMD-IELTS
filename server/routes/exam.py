@@ -2,7 +2,8 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request, abort
 from datetime import datetime, timezone
 from supabase_client import get_supabase
-from utils import get_current_user_id
+from utils import get_current_user_id, to_jsonable
+from ai_helpers import evaluate_ielts_writing
 
 exam_bp = Blueprint("exam", __name__, url_prefix="/api")
 
@@ -83,6 +84,74 @@ def add_exam_answer():
         "answered_at": datetime.now(timezone.utc).isoformat(),
     }).execute().data[0]
     return jsonify(row), 201
+
+
+@exam_bp.post("/writing-eval/exam/<exam_answer_id>")
+def create_writing_eval_for_exam(exam_answer_id: str):
+    user_id = get_current_user_id()
+    sb = get_supabase()
+    body = request.get_json(silent=True) or {}
+    target_band = float(body.get("target_band") or 7.0)
+
+    ans = (
+        sb.table("exam_answers")
+        .select("id,exam_session_id,section_result_id,question_id,answer_text")
+        .eq("id", exam_answer_id)
+        .single()
+        .execute()
+        .data
+    )
+    if not ans:
+        abort(404, description="Exam answer not found")
+
+    sess = (
+        sb.table("exam_sessions")
+        .select("user_id")
+        .eq("id", ans["exam_session_id"])
+        .single()
+        .execute()
+        .data
+    )
+    if not sess or sess["user_id"] != user_id:
+        abort(404, description="Exam session not found")
+
+    q = sb.table("questions").select("id,prompt,task_type").eq("id", ans["question_id"]).single().execute().data
+    if not q:
+        abort(404, description="Question not found")
+
+    eval_res = evaluate_ielts_writing(
+        q.get("prompt") or "",
+        ans.get("answer_text") or "",
+        q.get("task_type") or "Task 2",
+        target_band,
+    )
+
+    row = (
+        sb.table("writing_evaluations")
+        .insert(
+            {
+                "mode": "exam",
+                "practice_answer_id": None,
+                "exam_answer_id": exam_answer_id,
+                "exam_session_id": ans["exam_session_id"],
+                "exam_section_result_id": ans["section_result_id"],
+                "user_id": user_id,
+                "question_id": q["id"],
+                "overall_band": eval_res.get("overall_band"),
+                "band_task_response": eval_res.get("task_response"),
+                "band_coherence": eval_res.get("coherence_and_cohesion"),
+                "band_lexical": eval_res.get("lexical_resource"),
+                "band_grammar": eval_res.get("grammatical_range_and_accuracy"),
+                "is_good_enough": eval_res.get("is_good_enough"),
+                "feedback_short": eval_res.get("feedback_short"),
+                "feedback_detailed": eval_res.get("feedback_detailed"),
+                "model_answer": eval_res.get("model_answer"),
+            }
+        )
+        .execute()
+        .data[0]
+    )
+    return jsonify(to_jsonable(row)), 201
 
 
 @exam_bp.post("/exam-sections/<section_id>/complete")
@@ -170,12 +239,24 @@ def complete_exam(exam_id: str):
         # raw answers for this section
         answers = (
             sb.table("exam_answers")
-            .select("question_id,option_id,answer_text,is_correct")
+            .select("id,question_id,option_id,answer_text,is_correct")
             .eq("section_result_id", s["id"])
             .execute()
             .data
             or []
         )
+
+        writing_evals = (
+            sb.table("writing_evaluations")
+            .select("*")
+            .eq("exam_section_result_id", s["id"])
+            .execute()
+            .data
+            or []
+        )
+        writing_by_answer = {
+            w.get("exam_answer_id"): w for w in writing_evals if w.get("exam_answer_id")
+        }
 
         # simple caches to avoid querying the same question over and over
         question_cache: dict[str, dict] = {}
@@ -240,6 +321,40 @@ def complete_exam(exam_id: str):
             # we don't need to expose option_id to the client
             a.pop("option_id", None)
 
+            w_eval = writing_by_answer.get(a["id"])
+            a["writing_eval"] = to_jsonable(w_eval) if w_eval else None
+            a.pop("id", None)
+
+        # speaking attempts (if any) tied to this section
+        speaking_attempts = (
+            sb.table("speaking_attempts")
+            .select("id,audio_path,duration_seconds,question_id")
+            .eq("exam_section_result_id", s["id"])
+            .execute()
+            .data
+            or []
+        )
+        attempt_ids = [a["id"] for a in speaking_attempts]
+        speaking_evals = (
+            sb.table("speaking_evaluations")
+            .select("*")
+            .in_("attempt_id", attempt_ids or [""])
+            .execute()
+            .data
+            or []
+        )
+        eval_by_attempt = {e["attempt_id"]: e for e in speaking_evals}
+
+        speaking_summary = []
+        for at in speaking_attempts:
+            ev = eval_by_attempt.get(at["id"])
+            speaking_summary.append(
+                {
+                    **at,
+                    "evaluation": to_jsonable(ev) if ev else None,
+                }
+            )
+
         out_sections.append(
             {
                 "section_result_id": s["id"],
@@ -249,6 +364,8 @@ def complete_exam(exam_id: str):
                 "correct_questions": s.get("correct_questions"),
                 "score": s.get("score"),
                 "answers": answers,
+                "writing_evaluations": [to_jsonable(w) for w in writing_evals],
+                "speaking_attempts": speaking_summary,
             }
         )
 

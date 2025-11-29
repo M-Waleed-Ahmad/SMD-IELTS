@@ -2,7 +2,8 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request, abort
 from datetime import datetime, timezone
 from supabase_client import get_supabase
-from utils import get_current_user_id
+from utils import get_current_user_id, to_jsonable
+from ai_helpers import evaluate_ielts_writing
 
 practice_bp = Blueprint("practice", __name__, url_prefix="/api")
 
@@ -74,6 +75,76 @@ def add_practice_answer(session_id: str):
     return jsonify(row), 201
 
 
+@practice_bp.post("/writing-eval/practice/<practice_answer_id>")
+def create_writing_eval_for_practice(practice_answer_id: str):
+    user_id = get_current_user_id()
+    sb = get_supabase()
+    body = request.get_json(silent=True) or {}
+    target_band = float(body.get("target_band") or 7.0)
+
+    ans = (
+        sb.table("practice_answers")
+        .select("id,question_id,answer_text,session_id")
+        .eq("id", practice_answer_id)
+        .single()
+        .execute()
+        .data
+    )
+    if not ans:
+        abort(404, description="Practice answer not found")
+
+    sess = (
+        sb.table("practice_sessions")
+        .select("user_id")
+        .eq("id", ans["session_id"])
+        .single()
+        .execute()
+        .data
+    )
+    if not sess or sess["user_id"] != user_id:
+        abort(404, description="Session not found")
+
+    q = sb.table("questions").select("id,prompt,task_type").eq("id", ans["question_id"]).single().execute().data
+    if not q:
+        abort(404, description="Question not found")
+
+    eval_res = evaluate_ielts_writing(
+        q.get("prompt") or "",
+        ans.get("answer_text") or "",
+        q.get("task_type") or "Task 2",
+        target_band,
+    )
+    print("Writing eval result:", eval_res)
+
+    row = (
+        sb.table("writing_evaluations")
+        .insert(
+            {
+                "mode": "practice",
+                "practice_answer_id": practice_answer_id,
+                "exam_answer_id": None,
+                "exam_session_id": None,
+                "exam_section_result_id": None,
+                "user_id": user_id,
+                "question_id": q["id"],
+                "overall_band": eval_res.get("overall_band"),
+                "band_task_response": eval_res.get("task_response"),
+                "band_coherence": eval_res.get("coherence_and_cohesion"),
+                "band_lexical": eval_res.get("lexical_resource"),
+                "band_grammar": eval_res.get("grammatical_range_and_accuracy"),
+                "is_good_enough": eval_res.get("is_good_enough"),
+                "feedback_short": eval_res.get("feedback_short"),
+                "feedback_detailed": eval_res.get("feedback_detailed"),
+                "model_answer": eval_res.get("model_answer"),
+            }
+        )
+        .execute()
+        .data[0]
+    )
+    print("Inserted writing eval:", row)
+    return jsonify(to_jsonable(row)), 201
+
+
 @practice_bp.post("/practice-sessions/<session_id>/complete")
 def complete_practice_session(session_id: str):
     user_id = get_current_user_id()
@@ -92,7 +163,7 @@ def complete_practice_session(session_id: str):
         abort(404, description="Session not found")
 
     body = request.get_json(silent=True) or {}
-    time_taken = body.get("time_taken_seconds")
+    time_taken = body.get("time_taken_seconds") or 0
     ps_id = sess["practice_set_id"]
 
     # 2) Load all answers for this session
@@ -102,19 +173,29 @@ def complete_practice_session(session_id: str):
         .eq("session_id", session_id)
         .execute()
         .data
+        or []
     )
 
+    answer_ids = [a["id"] for a in answers_raw]
+    writing_evals = (
+        sb.table("writing_evaluations")
+        .select("*")
+        .in_("practice_answer_id", answer_ids if answer_ids else ["_none_"])
+        .execute()
+        .data
+        or []
+    )
+    writing_by_answer = {w["practice_answer_id"]: w for w in writing_evals}
+
     # 3) Fetch all questions + options for this practice set
-    # IMPORTANT: use the actual relationship/table name: question_options
     qrows = (
         sb.table("questions")
         .select("id, prompt, question_options(id, text, is_correct)")
         .eq("practice_set_id", ps_id)
         .execute()
         .data
+        or []
     )
-
-    # Map questions by id
     qmap = {q["id"]: q for q in qrows}
 
     # 4) Build enriched answer list
@@ -122,24 +203,21 @@ def complete_practice_session(session_id: str):
     for ans in answers_raw:
         qid = ans["question_id"]
         q = qmap.get(qid)
+        w_eval = writing_by_answer.get(ans["id"])
 
         prompt = q["prompt"] if q else None
         raw_opts = q.get("question_options", []) if q else []
 
-        # Map options by id for quick lookup
         option_map = {opt["id"]: opt for opt in raw_opts}
-
         user_option = option_map.get(ans["option_id"])
         user_option_text = user_option["text"] if user_option else None
 
-        # Find correct option text
         correct_option_text = None
         for opt in raw_opts:
             if opt.get("is_correct") is True:
                 correct_option_text = opt["text"]
                 break
 
-        # Pick best representation of the user's answer
         user_answer_final = ans["answer_text"] or user_option_text
 
         enriched_answers.append(
@@ -152,6 +230,7 @@ def complete_practice_session(session_id: str):
                 "is_correct": ans["is_correct"],
                 "correct_option_text": correct_option_text,
                 "correct_answer": correct_option_text,  # alias for frontend
+                "writing_eval": to_jsonable(w_eval) if w_eval else None,
             }
         )
 
@@ -164,7 +243,7 @@ def complete_practice_session(session_id: str):
         .count
         or 0
     )
-    total_correct = sum(1 for a in answers_raw if a["is_correct"])
+    total_correct = sum(1 for a in answers_raw if a.get("is_correct") is True)
     completed_at = datetime.now(timezone.utc).isoformat()
     score = float(total_correct) / total_q * 100 if total_q else 0.0
 
@@ -213,6 +292,7 @@ def complete_practice_session(session_id: str):
                 "score": score,
             },
             "answers": enriched_answers,
+            "writing_evaluations": [to_jsonable(w) for w in writing_evals],
             "completed_at": completed_at,
         }
     )
