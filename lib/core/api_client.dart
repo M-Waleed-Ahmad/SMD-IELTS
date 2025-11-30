@@ -38,7 +38,13 @@ class ApiClient {
   Future<List<dynamic>> getPracticeSetsForSkill(String slug) async {
     final r = await http.get(_u('/skills/$slug/practice-sets'));
     final data = _json(r) as Map<String, dynamic>;
-    return List<dynamic>.from(data['items'] as List);
+    final items = List<dynamic>.from(data['items'] as List);
+    // filter out sets with no questions
+    return items.where((item) {
+      final qCount = (item is Map<String, dynamic>) ? item['question_count'] : null;
+      if (qCount is num && qCount <= 0) return false;
+      return true;
+    }).toList();
   }
 
   Future<Map<String, dynamic>> getPracticeSet(String id) async {

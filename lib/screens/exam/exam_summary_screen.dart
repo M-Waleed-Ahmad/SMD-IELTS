@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../core/app_state.dart';
-import '../../mock/mock_data.dart';
 import '../../models/test_result.dart';
 import '../../models/practice_review_models.dart';
 import '../../core/constants.dart';
@@ -59,19 +58,22 @@ class ExamSummaryScreen extends StatelessWidget {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final r = results[index];
-                          final skill = skills.firstWhere((s) => s.id == r.skillId);
+                          final skillName = (r.skillId.isNotEmpty)
+                              ? '${r.skillId[0].toUpperCase()}${r.skillId.length > 1 ? r.skillId.substring(1) : ''}'
+                              : 'Skill';
+                          final color = Theme.of(context).colorScheme.primary;
                           return Card(
                             child: Padding(
                               padding: const EdgeInsets.all(12.0),
                               child: Row(
                                 children: [
-                                  CircleAvatar(backgroundColor: skill.color.withOpacity(0.15), child: Icon(skill.icon, color: skill.color)),
+                                  CircleAvatar(backgroundColor: color.withOpacity(0.15), child: Icon(Icons.school, color: color)),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(skill.name, style: Theme.of(context).textTheme.titleMedium),
+                                        Text(skillName, style: Theme.of(context).textTheme.titleMedium),
                                         const SizedBox(height: 4),
                                         Text('Time: ${(r.timeTakenSeconds / 60).round()} min • ${r.totalQuestions == 0 ? 'Completed' : 'Correct ${r.correctQuestions}/${r.totalQuestions}'}'),
                                       ],

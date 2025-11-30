@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../core/constants.dart';
-import '../../mock/mock_data.dart';
 import '../../models/question.dart';
 import '../../widgets/question_widgets.dart';
 import '../../widgets/timer_badge.dart';
@@ -289,9 +288,16 @@ class _ExamSectionScreenState extends State<ExamSectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final skill = skills.firstWhere(
-      (s) => s.id == widget.skillId,
-      orElse: () => skills.first,
+    final theme = Theme.of(context);
+    final skillName = widget.skillId.isNotEmpty
+        ? '${widget.skillId[0].toUpperCase()}${widget.skillId.length > 1 ? widget.skillId.substring(1) : ''}'
+        : 'Skill';
+    final skill = Skill(
+      id: widget.skillId,
+      name: skillName,
+      description: '',
+      icon: Icons.school,
+      color: theme.colorScheme.primary,
     );
 
     if (_loading) {

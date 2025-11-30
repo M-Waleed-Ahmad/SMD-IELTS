@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../core/constants.dart';
-import '../../mock/mock_data.dart';
 import '../../models/practice_review_models.dart';
 import 'practice_review_screen.dart';
 
@@ -17,12 +16,8 @@ class PracticeSummaryScreen extends StatelessWidget {
     final stats =
         (args.completionData?['stats'] ?? const {}) as Map<String, dynamic>;
 
-    final mockSkill = skills.where((s) => s.id == result.skillId);
-    final mockSet = practiceSets.where((p) => p.id == result.practiceSetId);
-    final skillName =
-        practiceMeta?['skill_name'] ?? (mockSkill.isNotEmpty ? mockSkill.first.name : null);
-    final setTitle =
-        practiceMeta?['title'] ?? (mockSet.isNotEmpty ? mockSet.first.title : null);
+    final skillName = practiceMeta?['skill_name'] ?? result.skillId;
+    final setTitle = practiceMeta?['title'] ?? result.practiceSetId ?? '';
     final headerTitle = args.title ??
         [skillName, setTitle]
             .whereType<String>()
