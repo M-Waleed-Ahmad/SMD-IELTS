@@ -5,6 +5,8 @@ import 'supabase_client.dart';
 class ApiClient {
   final String baseUrl;
   ApiClient({this.baseUrl = 'http://10.0.2.2:5000/api'});
+  // ApiClient({this.baseUrl = 'http://127.0.0.1:5000/api'});
+
 
   Map<String, String> _headers({bool auth = false}) {
     final h = <String, String>{'Content-Type': 'application/json'};
@@ -36,7 +38,13 @@ class ApiClient {
   Future<List<dynamic>> getPracticeSetsForSkill(String slug) async {
     final r = await http.get(_u('/skills/$slug/practice-sets'));
     final data = _json(r) as Map<String, dynamic>;
-    return List<dynamic>.from(data['items'] as List);
+    final items = List<dynamic>.from(data['items'] as List);
+    // filter out sets with no questions
+    return items.where((item) {
+      final qCount = (item is Map<String, dynamic>) ? item['question_count'] : null;
+      if (qCount is num && qCount <= 0) return false;
+      return true;
+    }).toList();
   }
 
   Future<Map<String, dynamic>> getPracticeSet(String id) async {
@@ -76,6 +84,55 @@ class ApiClient {
   Future<List<dynamic>> getRecentPracticeSessions() async {
     final r = await http.get(_u('/practice-sessions/recent'), headers: _headers(auth: true));
     return List<dynamic>.from(_json(r));
+  }
+
+  // AI: Writing evaluations
+  Future<Map<String, dynamic>> createWritingEvalForPractice(String practiceAnswerId, {double targetBand = 7.0}) async {
+    final r = await http.post(
+      _u('/writing-eval/practice/$practiceAnswerId'),
+      headers: _headers(auth: true),
+      body: jsonEncode({'target_band': targetBand}),
+    );
+    return Map<String, dynamic>.from(_json(r));
+  }
+
+  Future<Map<String, dynamic>> createWritingEvalForExam(String examAnswerId, {double targetBand = 7.0}) async {
+    final r = await http.post(
+      _u('/writing-eval/exam/$examAnswerId'),
+      headers: _headers(auth: true),
+      body: jsonEncode({'target_band': targetBand}),
+    );
+    return Map<String, dynamic>.from(_json(r));
+  }
+
+  // AI: Speaking
+  Future<Map<String, dynamic>> createSpeakingAttempt({
+    required String questionId,
+    required String audioPath,
+    required int durationSeconds,
+    required String mode, // 'practice' or 'exam'
+    String? examSessionId,
+    String? examSectionResultId,
+  }) async {
+    final body = <String, dynamic>{
+      'question_id': questionId,
+      'audio_path': audioPath,
+      'duration_seconds': durationSeconds,
+      'mode': mode,
+      if (examSessionId != null) 'exam_session_id': examSessionId,
+      if (examSectionResultId != null) 'exam_section_result_id': examSectionResultId,
+    };
+    final r = await http.post(_u('/speaking-attempts'), headers: _headers(auth: true), body: jsonEncode(body));
+    return Map<String, dynamic>.from(_json(r));
+  }
+
+  Future<Map<String, dynamic>> createSpeakingEvaluation(String attemptId, {double targetBand = 7.0}) async {
+    final r = await http.post(
+      _u('/speaking-eval/$attemptId'),
+      headers: _headers(auth: true),
+      body: jsonEncode({'target_band': targetBand}),
+    );
+    return Map<String, dynamic>.from(_json(r));
   }
 
   // Exam
