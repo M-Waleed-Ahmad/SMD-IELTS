@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../core/app_state.dart';
+import '../../core/api_client.dart';
+import '../../core/supabase_client.dart';
+import '../../core/session_boot.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -11,10 +15,13 @@ class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _fadeAnimation;
+  late final ApiClient _api;
 
   @override
   void initState() {
     super.initState();
+
+    _api = ApiClient();
 
     _controller = AnimationController(
       vsync: this,
@@ -28,11 +35,33 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller.forward();
 
-    // After a short delay, navigate to onboarding (which restores session if available)
-    Future.delayed(const Duration(milliseconds: 1800), () {
+    // Kick off bootstrap logic
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    // Let the splash animation play a bit
+    await Future.delayed(const Duration(milliseconds: 1200));
+
+    if (!mounted) return;
+    final app = AppStateScope.of(context);
+
+    try {
+      if (Supa.currentUser != null) {
+        // There is already a session → hydrate and go straight to shell
+        await hydrateFromSupabaseSession(app, _api);
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed('/shell');
+      } else {
+        // No session → go to onboarding
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed('/onboarding');
+      }
+    } catch (_) {
+      // If anything goes wrong, fall back to onboarding
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/onboarding');
-    });
+    }
   }
 
   @override
@@ -58,4 +87,3 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 }
-
